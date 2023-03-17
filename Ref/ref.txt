@@ -1,0 +1,19 @@
+class FusionBlock_res(nn.Module):
+    # spatial attention
+
+    def __init__(self, channels, index):
+        super().__init__()
+        self.conv_ir = ConvLayer(channels, channels, 3, 1)
+        self.conv_vi = ConvLayer(channels, channels, 3, 1)
+        self.conv_fusion = ConvLayer(channels*2, channels, 3, 1)
+        self.spatial_select = nn.Conv2d(channels, 2, 1)
+
+    def forward(self, x_ir, x_vi):
+        ir = self.conv_ir(x_ir)
+        vi = self.conv_vi(x_vi)
+        fuse = torch.cat([ir, vi], 1)
+        fuse = self.conv_fusion(fuse)
+        prob = self.spatial_select(fuse).softmax(1)  # [B, 2, H, W]
+        prob_ir, prob_vi = prob[:, :1], prob[:, 1:]  # 2x [B, 1, H, W]
+        x = x_ir * prob_ir + x_vi * prob_vi
+        return x

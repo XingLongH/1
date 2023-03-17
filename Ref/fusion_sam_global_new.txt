@@ -1,0 +1,31 @@
+from .sam import SAM
+
+class FusionBlock_res(nn.Module):
+    # spatial attention with global feature
+
+    def __init__(self, channels, index):
+        super().__init__()
+        self.conv_ir = ConvLayer(channels, channels, 3, 1)
+        self.conv_vi = ConvLayer(channels, channels, 3, 1)
+        self.cross_ir = SAM(channels, channels, channels)
+        self.cross_vi = SAM(channels, channels, channels)
+        self.conv_fusion = ConvLayer(channels*2, channels, 3, 1)
+        self.spatial_select = nn.Conv2d(channels*3, 2, 1)
+
+    def forward(self, x_ir, x_vi):
+        ir = self.conv_ir(x_ir)
+        vi = self.conv_vi(x_vi)
+        cir = self.cross_ir(vi, ir)
+        cvi = self.cross_vi(ir, vi)
+        fuse = torch.cat([cir, cvi], 1)
+        fuse = self.conv_fusion(fuse)
+
+        # append global faetures
+        vi_g = vi.mean([2, 3], keepdim=True).expand(-1, -1, vi.shape[2], vi.shape[3])
+        ir_g = ir.mean([2, 3], keepdim=True).expand(-1, -1, ir.shape[2], ir.shape[3])
+        fuse = torch.cat([fuse, ir_g, vi_g], 1)
+
+        prob = self.spatial_select(fuse).softmax(1)  # [B, 2, H, W]
+        prob_ir, prob_vi = prob[:, :1], prob[:, 1:]  # 2x [B, 1, H, W]
+        x = x_ir * prob_ir + x_vi * prob_vi
+        return x
